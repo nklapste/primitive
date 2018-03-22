@@ -11,9 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"bufio"
 
 	"github.com/fogleman/primitive/primitive"
 	"github.com/nfnt/resize"
+	"image"
+	"image/png"
+	"io"
 )
 
 var (
@@ -204,4 +208,77 @@ func main() {
 			}
 		}
 	}
+}
+
+
+func primify(input image.Image, shape_number int, background string, alpha int,
+	input_size int, output_size int, shape_type int, workers int, save_nth int, extra_shapes int) (io.Reader){
+	// set log level
+	if V {
+		primitive.LogLevel = 1
+	}
+	if VV {
+		primitive.LogLevel = 2
+	}
+
+	// seed random number generator
+	rand.Seed(time.Now().UTC().UnixNano())
+
+	// determine worker count
+	if workers < 1 {
+		workers = runtime.NumCPU()
+	}
+
+	// scale down input image if needed
+	size := uint(input_size)
+	if size > 0 {
+		input = resize.Thumbnail(size, size, input, resize.Bilinear)
+	}
+
+	// determine background color
+	var bg primitive.Color
+	if background == "" {
+		bg = primitive.MakeColor(primitive.AverageImageColor(input))
+	} else {
+		bg = primitive.MakeHexColor(background)
+	}
+
+	// run algorithm
+	model := primitive.NewModel(input, bg, output_size, workers)
+	primitive.Log(1, "%d: t=%.3f, score=%.6f\n", 0, 0.0, model.Score)
+	start := time.Now()
+	frame := 0
+
+	for i := 0; i < shape_number; i++ {
+		frame++
+
+		// find optimal shape and add it to the model
+		t := time.Now()
+		n := model.Step(primitive.ShapeType(shape_type), alpha, extra_shapes)
+		nps := primitive.NumberString(float64(n) / time.Since(t).Seconds())
+		elapsed := time.Since(start).Seconds()
+
+		primitive.Log(1, "%d: t=%.3f, score=%.6f, n=%d, n/s=%s\n", frame, elapsed, model.Score, n, nps)
+	}
+	// write output image(s)
+
+	file := bufio.ReadWriter{}
+	png.Encode(file, model.Context.Image())
+
+	return file
+	// todo maybe save onto a bufio? and return for later read by the bot
+	//primitive.Log(1, "writing %s\n", path)
+	//switch ext {
+	//	default:
+	//		check(fmt.Errorf("unrecognized file extension: %s", ext))
+	//	case ".png":
+	//		check(primitive.SavePNG(path, model.Context.Image()))
+	//	case ".jpg", ".jpeg":
+	//		check(primitive.SaveJPG(path, model.Context.Image(), 95))
+	//	case ".svg":
+	//		check(primitive.SaveFile(path, model.SVG()))
+	//	case ".gif":
+	//		frames := model.Frames(0.001)
+	//		check(primitive.SaveGIFImageMagick(path, frames, 50, 250))
+	//}
 }
